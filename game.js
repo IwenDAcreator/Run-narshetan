@@ -1,0 +1,296 @@
+const GAME_WIDTH = 360;
+const GAME_HEIGHT = 640;
+const GROUND_Y = GAME_HEIGHT - 50;
+
+let player;
+let obstacles;
+let score = 0;
+let bestScore = 0;
+let scoreText;
+let bestText;
+let nameText;
+let playerName = ""; // pseudo pour la session
+let gameOver = false;
+let spawnTimer;
+let bg; 
+let inputElement;
+let gameStarted = false;
+
+let baseSpeed = 220;
+let bgSpeed = 3;
+let scoreTimer = 0;
+
+// --- Variables pause
+let isPaused = false;
+let pauseBtn;
+let pauseOverlay;
+let pauseText;
+let pauseBtnContainer; // cadre rond
+
+const config = {
+  type: Phaser.AUTO,
+  width: GAME_WIDTH,
+  height: GAME_HEIGHT,
+  parent: 'game',
+  backgroundColor: '#aaaaaa',
+  physics: {
+    default: 'arcade',
+    arcade: {
+      gravity: { y: 1200 },
+      debug: false
+    }
+  },
+  scene: { preload, create, update }
+};
+
+new Phaser.Game(config);
+
+function preload() {
+  this.load.image('player', 'assets/player.png');
+  this.load.image('obstacle', 'assets/obstacle.png');
+  this.load.image('background', 'assets/background.png');
+}
+
+function create() {
+  const scene = this;
+
+  // --- BACKGROUND
+  bg = scene.add.tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 'background');
+
+  // --- SOL invisible
+  const ground = scene.add.rectangle(GAME_WIDTH / 2, GROUND_Y, GAME_WIDTH, 10);
+  scene.physics.add.existing(ground, true);
+  ground.setVisible(false);
+
+  // --- JOUEUR
+  player = scene.physics.add.sprite(80, -200, 'player'); 
+  player.setOrigin(0.5, 1);
+  player.setScale(0.15);
+  player.body.setSize(player.width, player.height);
+  player.body.setOffset(0, 0);
+  player.setCollideWorldBounds(true);
+  player.setBounce(0.2);
+  scene.physics.add.collider(player, ground);
+
+  // --- OBSTACLES
+  obstacles = scene.physics.add.group();
+  scene.physics.add.collider(obstacles, ground);
+  scene.physics.add.overlap(player, obstacles, hit, null, scene);
+
+  // --- SCORE et meilleur score
+  scoreText = scene.add.text(10, 10, 'Score: 0', { fontFamily: 'Arial', fontSize: '28px', fontStyle: 'bold', fill: '#000' });
+  bestText = scene.add.text(GAME_WIDTH - 10, 10, 'Best: ' + bestScore, { fontFamily: 'Arial', fontSize: '28px', fontStyle: 'bold', fill: '#000' }).setOrigin(1, 0);
+
+  // --- TEXTE PSEUDO avec cadre plus joli et animation
+  const rect = scene.add.rectangle(GAME_WIDTH / 2, 60, 180, 30, 0xffffff, 0.8).setStrokeStyle(3, 0x000000, 1);
+  rect.setOrigin(0.5, 0.5);
+  nameText = scene.add.text(GAME_WIDTH / 2, 60, playerName, { 
+      fontFamily: "Arial", 
+      fontSize: "20px", 
+      fontStyle: "bold", 
+      fill: "#000" 
+  }).setOrigin(0.5, 0.5);
+
+  // --- Animation pulse du cadre du pseudo
+  scene.tweens.add({
+    targets: rect,
+    scaleX: 1.05,
+    scaleY: 1.05,
+    duration: 800,
+    yoyo: true,
+    repeat: -1
+  });
+
+  // --- BOUTON PAUSE ROND (rempli blanc, contour noir, texte noir)
+  pauseBtnContainer = scene.add.circle(GAME_WIDTH / 2, 20, 18, 0xffffff); // cercle blanc, rayon 18
+  pauseBtnContainer.setStrokeStyle(3, 0x000000); // contour noir
+  pauseBtnContainer.setInteractive({ useHandCursor: true });
+
+  pauseBtn = scene.add.text(GAME_WIDTH / 2, 20, "⏸", {
+      fontSize: "20px",
+      fontFamily: "Arial",
+      color: "#000000",
+      fontStyle: "bold"
+  }).setOrigin(0.5);
+
+  // Click sur le cercle ou sur le texte
+  pauseBtnContainer.on("pointerdown", () => {
+      if (gameOver || !gameStarted) return;
+      togglePause(scene);
+  });
+  pauseBtn.on("pointerdown", () => {
+      if (gameOver || !gameStarted) return;
+      togglePause(scene);
+  });
+
+  // --- INPUT HTML pour pseudo (apparait seulement au lancement)
+  if (!playerName) {
+    showInput(scene);
+  } else {
+    startGame(scene); // si pseudo déjà défini (reload)
+  }
+}
+
+function showInput(scene) {
+    inputElement = document.createElement("input");
+    inputElement.type = "text";
+    inputElement.placeholder = "Pseudo (max 7 caractères)";
+    inputElement.maxLength = 7;
+    inputElement.style.position = "absolute";
+    inputElement.style.top = "50%";
+    inputElement.style.left = "50%";
+    inputElement.style.transform = "translate(-50%, -50%)";
+    inputElement.style.width = "220px";
+    inputElement.style.height = "40px";
+    inputElement.style.fontSize = "20px";
+    inputElement.style.textAlign = "center";
+    inputElement.style.border = "2px solid #000";
+    inputElement.style.borderRadius = "8px";
+    inputElement.style.outline = "none";
+    document.body.appendChild(inputElement);
+
+    inputElement.addEventListener("input", () => {
+      inputElement.value = inputElement.value.replace(/\s/g, "");
+    });
+
+    inputElement.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && inputElement.value.length > 0) {
+        playerName = inputElement.value.substring(0,7);
+        nameText.setText(playerName);
+        inputElement.style.display = "none"; // disparition après validation
+        startGame(scene);
+      }
+    });
+}
+
+function startGame(scene) {
+  gameStarted = true;
+  player.body.allowGravity = true;
+  player.setVelocityY(300);
+
+  spawnTimer = scene.time.addEvent({
+    delay: 1400,
+    loop: true,
+    callback: spawnObstacle,
+    callbackScope: scene
+  });
+
+  scene.input.on('pointerdown', jump);
+  scene.input.keyboard.on('keydown-SPACE', jump);
+
+  function jump() {
+    if (gameOver) return;
+    if (player.body.blocked.down) {
+      player.setVelocityY(-520);
+    }
+  }
+}
+
+function spawnObstacle() {
+  if (gameOver || !gameStarted) return;
+
+  const obs = obstacles.create(GAME_WIDTH + 40, GROUND_Y, 'obstacle');
+  obs.setOrigin(0.5, 1);
+  obs.setScale(0.15);
+  obs.body.setSize(obs.width, obs.height);
+  obs.body.setOffset(0, 0);
+  obs.setVelocityX(-baseSpeed);
+  obs.body.allowGravity = false;
+  obs.setImmovable(true);
+}
+
+function hit() {
+  if (!gameStarted) return;
+  gameOver = true;
+  player.setTint(0xff0000);
+  spawnTimer.remove();
+
+  if (score > bestScore) bestScore = score;
+  bestText.setText('Best: ' + bestScore);
+
+  const overlay = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.5);
+
+  const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, 'GAME OVER', { font: '28px Arial', fill: '#fff', align: 'center' }).setOrigin(0.5);
+  const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20, 'REJOUER', { font: '28px Arial', fill: '#fff', align: 'center' }).setOrigin(0.5);
+
+  this.tweens.add({ targets: restartText, alpha: 0.2, duration: 500, yoyo: true, repeat: -1 });
+
+  restartText.setInteractive({ useHandCursor: true });
+  restartText.on('pointerdown', () => {
+    overlay.destroy();
+    gameOverText.destroy();
+    restartText.destroy();
+
+    this.input.removeAllListeners();
+    this.input.keyboard.removeAllListeners();
+
+    this.scene.restart();
+    score = 0;
+    gameOver = false;
+    baseSpeed = 220;
+    bgSpeed = 3;
+    scoreTimer = 0;
+
+    // --- Pseudo reste affiché, aucun nouvel input
+    nameText.setText(playerName);
+  });
+}
+
+function togglePause(scene) {
+  isPaused = !isPaused;
+
+  if (isPaused) {
+    scene.physics.pause();
+    scene.time.paused = true;
+
+    pauseOverlay = scene.add.rectangle(
+      GAME_WIDTH / 2,
+      GAME_HEIGHT / 2,
+      GAME_WIDTH,
+      GAME_HEIGHT,
+      0x000000,
+      0.5
+    );
+
+    pauseText = scene.add.text(
+      GAME_WIDTH / 2,
+      GAME_HEIGHT / 2,
+      "PAUSE",
+      {
+        fontSize: "42px",
+        fontFamily: "Arial",
+        fontStyle: "bold",
+        color: "#fff"
+      }
+    ).setOrigin(0.5);
+
+  } else {
+    scene.physics.resume();
+    scene.time.paused = false;
+
+    pauseOverlay.destroy();
+    pauseText.destroy();
+  }
+}
+
+function update(time, delta) {
+  if (!gameStarted || isPaused) return;
+
+  if (!gameOver) {
+    scoreTimer += delta;
+    if (scoreTimer >= 2000) {
+      score++;
+      scoreText.setText('Score: ' + score);
+      scoreTimer = 0;
+      baseSpeed += 5;
+      bgSpeed += 0.05;
+    }
+    bg.tilePositionX += bgSpeed;
+  }
+
+  obstacles.getChildren().forEach(o => {
+    if (!gameStarted) return;
+    o.setVelocityX(-baseSpeed);
+    if (o.x < -50) o.destroy();
+  });
+}
