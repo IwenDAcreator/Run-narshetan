@@ -66,7 +66,11 @@ new Phaser.Game(config);
 // PRELOAD
 // =========================
 function preload() {
-  this.load.image('player', 'assets/player.png');
+  // Sprite sheet du joueur (7 frames horizontales)
+  this.load.spritesheet('player', 'assets/player_run.png', {
+    frameWidth: 71, // 500 / 7 ≈ 71
+    frameHeight: 86
+  });
   this.load.image('obstacle', 'assets/obstacle.png');
   this.load.image('background', 'assets/background.png');
 }
@@ -85,12 +89,25 @@ function create() {
 
   player = scene.physics.add.sprite(80, -200, 'player'); 
   player.setOrigin(0.5, 1);
-  player.setScale(0.15);
-  player.body.setSize(player.width, player.height);
+  player.setScale(1);
+  player.body.setSize(47,85);
   player.body.setOffset(0, 0);
   player.setCollideWorldBounds(true);
   player.setBounce(0.2);
   scene.physics.add.collider(player, ground);
+
+  // =========================
+  // Création de l'animation de course
+  // =========================
+  scene.anims.create({
+    key: 'run',
+    frames: scene.anims.generateFrameNumbers('player', { start: 0, end: 6 }),
+    frameRate: 10,
+    repeat: -1
+  });
+
+  // Lancer l'animation
+  player.play('run');
 
   obstacles = scene.physics.add.group();
   scene.physics.add.collider(obstacles, ground);
@@ -164,12 +181,12 @@ function startGame(scene) {
 }
 
 // =========================
-// SPAWN OBSTACLE ALEATOIRE (intervalle seulement)
+// SPAWN OBSTACLE ALEATOIRE
 // =========================
 function scheduleNextObstacle(scene) {
   if(gameOver || !gameStarted) return;
 
-  const delay = Phaser.Math.Between(1000, 2000); // intervalle aléatoire
+  const delay = Phaser.Math.Between(1000, 2000);
   spawnTimer = scene.time.addEvent({
     delay: delay,
     loop: false,
@@ -185,7 +202,7 @@ function spawnObstacle() {
   if(gameOver || !gameStarted) return;
   const obs = obstacles.create(GAME_WIDTH+40, GROUND_Y, 'obstacle');
   obs.setOrigin(0.5,1);
-  obs.setScale(0.15); // taille fixe
+  obs.setScale(0.15);
   obs.body.setSize(obs.width, obs.height);
   obs.setVelocityX(-baseSpeed);
   obs.body.allowGravity = false;
@@ -206,7 +223,7 @@ function hit() {
 
   saveScoreFirebase(playerName, bestScore);
   showLeaderboardFirebase(this, ()=>{ 
-      const overlay = this.add.rectangle(GAME_WIDTH/2, GAME_HEIGHT/2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 1); // Opaque
+      const overlay = this.add.rectangle(GAME_WIDTH/2, GAME_HEIGHT/2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 1);
       const gameOverText = this.add.text(GAME_WIDTH/2, GAME_HEIGHT/2-50,'GAME OVER',{ font:'28px Arial', fill:'#fff'}).setOrigin(0.5);
       const restartText = this.add.text(GAME_WIDTH/2, GAME_HEIGHT/2+20,'REJOUER',{ font:'28px Arial', fill:'#fff'}).setOrigin(0.5);
       this.tweens.add({ targets: restartText, alpha:0.2, duration:500, yoyo:true, repeat:-1 });
