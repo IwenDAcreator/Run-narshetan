@@ -184,7 +184,10 @@ function hit(){
   bestText.setText('Best: '+bestScore);
 
   saveScoreFirebase(playerName,bestScore);
+
+  // afficher le leaderboard et attendre fermeture
   showLeaderboardFirebase(this, ()=>{
+    // après fermeture du leaderboard : game over / rejouer
     const overlay = this.add.rectangle(GAME_WIDTH/2,GAME_HEIGHT/2,GAME_WIDTH,GAME_HEIGHT,0x000000,1);
     const gameOverText = this.add.text(GAME_WIDTH/2,GAME_HEIGHT/2-50,'GAME OVER',{ font:'28px Arial', fill:'#fff'}).setOrigin(0.5);
     const restartText = this.add.text(GAME_WIDTH/2,GAME_HEIGHT/2+20,'REJOUER',{ font:'28px Arial', fill:'#fff'}).setOrigin(0.5);
@@ -224,13 +227,15 @@ function showLeaderboardFirebase(scene,onCloseCallback){
 
     let leaderboardObjects=[];
 
-    const boardBg = scene.add.rectangle(GAME_WIDTH/2,GAME_HEIGHT/2,300,420,0x000000,0.8).setStrokeStyle(3,0xffd700);
+    let boardHeight = Math.min(420, GAME_HEIGHT-80); // mobile-friendly
+    const boardBg = scene.add.rectangle(GAME_WIDTH/2,GAME_HEIGHT/2,300,boardHeight,0x000000,0.8).setStrokeStyle(3,0xffd700);
     leaderboardObjects.push(boardBg);
 
-    const title = scene.add.text(GAME_WIDTH/2,GAME_HEIGHT/2-180,"🏆 TOP 10",{ fontFamily:"Courier", fontSize:"28px", color:"#FFD700", fontStyle:"bold"}).setOrigin(0.5);
+    const titleY = GAME_HEIGHT/2 - boardHeight/2 + 40;
+    const title = scene.add.text(GAME_WIDTH/2,titleY,"🏆 TOP 10",{ fontFamily:"Courier", fontSize:"28px", color:"#FFD700", fontStyle:"bold"}).setOrigin(0.5);
     leaderboardObjects.push(title);
 
-    let startY = GAME_HEIGHT/2-140;
+    let startY = titleY + 40;
     scores.forEach((entry,i)=>{
       let color="#FFFFFF";
       if(i===0) color="#FFD700";
@@ -245,7 +250,7 @@ function showLeaderboardFirebase(scene,onCloseCallback){
       leaderboardObjects.push(txt);
     });
 
-    const closeBtn = scene.add.text(GAME_WIDTH/2,GAME_HEIGHT/2+170,"FERMER",{
+    const closeBtn = scene.add.text(GAME_WIDTH/2,GAME_HEIGHT/2+boardHeight/2-30,"FERMER",{
       fontFamily:"Courier",
       fontSize:"22px",
       color:"#FFD700",
@@ -253,7 +258,7 @@ function showLeaderboardFirebase(scene,onCloseCallback){
     }).setOrigin(0.5).setInteractive({ useHandCursor:true });
     leaderboardObjects.push(closeBtn);
 
-    closeBtn.on("pointerdown",()=>{
+    closeBtn.on("pointerdown", ()=>{
       leaderboardObjects.forEach(obj=>obj.destroy());
       leaderboardObjects=[];
       if(onCloseCallback) onCloseCallback();
