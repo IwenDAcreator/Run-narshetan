@@ -1,55 +1,64 @@
-// =========================
-// FIREBASE CONFIG
-// =========================
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, push, query, orderByChild, limitToLast, onValue } from "firebase/database";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyDnPIwUvzC5d_caDx2Jq9b5mVpsdX9rKNY",
-  authDomain: "runner-arcade-77ba6.firebaseapp.com",
-  databaseURL: "https://runner-arcade-77ba6-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "runner-arcade-77ba6",
-  storageBucket: "runner-arcade-77ba6.firebasestorage.app",
-  messagingSenderId: "569587415547",
-  appId: "1:569587415547:web:3099613cd76d5db42a335e"
-};
-
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
-
-// =========================
-// CONFIG JEU
-// =========================
 const GAME_WIDTH = 360;
 const GAME_HEIGHT = 640;
 const GROUND_Y = GAME_HEIGHT - 50;
 
-let player, obstacles;
+let player;
+let obstacles;
 let score = 0;
+let bestScore = 0;
 let scoreText;
+let bestText;
 let nameText;
-let playerName = "";
+let playerName = ""; // pseudo pour la session
 let gameOver = false;
 let spawnTimer;
-let bg;
+let bg; 
+let inputElement;
 let gameStarted = false;
 
 let baseSpeed = 220;
 let bgSpeed = 3;
 let scoreTimer = 0;
 
-// --- Pause
+// --- Variables pause
 let isPaused = false;
+let pauseBtn;
+let pauseOverlay;
+let pauseText;
+let pauseBtnContainer; // cadre rond
 
+// =========================
+// FIREBASE CONFIG
+// =========================
+if (!firebase.apps.length) {
+  const firebaseConfig = {
+    apiKey: "AIzaSyDnPIwUvzC5d_caDx2Jq9b5mVpsdX9rKNY",
+    authDomain: "runner-arcade-77ba6.firebaseapp.com",
+    databaseURL: "https://runner-arcade-77ba6-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "runner-arcade-77ba6",
+    storageBucket: "runner-arcade-77ba6.firebasestorage.app",
+    messagingSenderId: "569587415547",
+    appId: "1:569587415547:web:3099613cd76d5db42a335e"
+  };
+  firebase.initializeApp(firebaseConfig);
+}
+const db = firebase.database();
+
+// =========================
+// PHASER CONFIG
+// =========================
 const config = {
   type: Phaser.AUTO,
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   parent: 'game',
-  backgroundColor: '#000000',
+  backgroundColor: '#aaaaaa',
   physics: {
     default: 'arcade',
-    arcade: { gravity: { y: 1200 }, debug: false }
+    arcade: {
+      gravity: { y: 1200 },
+      debug: false
+    }
   },
   scene: { preload, create, update }
 };
@@ -71,95 +80,124 @@ function preload() {
 function create() {
   const scene = this;
 
-  // Background
-  bg = scene.add.tileSprite(GAME_WIDTH/2, GAME_HEIGHT/2, GAME_WIDTH, GAME_HEIGHT, 'background');
+  // --- BACKGROUND
+  bg = scene.add.tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 'background');
 
-  // Sol invisible
-  const ground = scene.add.rectangle(GAME_WIDTH/2, GROUND_Y, GAME_WIDTH, 10);
+  // --- SOL invisible
+  const ground = scene.add.rectangle(GAME_WIDTH / 2, GROUND_Y, GAME_WIDTH, 10);
   scene.physics.add.existing(ground, true);
   ground.setVisible(false);
 
-  // Joueur
-  player = scene.physics.add.sprite(80, -200, 'player');
+  // --- JOUEUR
+  player = scene.physics.add.sprite(80, -200, 'player'); 
   player.setOrigin(0.5, 1);
   player.setScale(0.15);
+  player.body.setSize(player.width, player.height);
+  player.body.setOffset(0, 0);
   player.setCollideWorldBounds(true);
   player.setBounce(0.2);
   scene.physics.add.collider(player, ground);
 
-  // Obstacles
+  // --- OBSTACLES
   obstacles = scene.physics.add.group();
   scene.physics.add.collider(obstacles, ground);
   scene.physics.add.overlap(player, obstacles, hit, null, scene);
 
-  // Score et pseudo
-  scoreText = scene.add.text(10, 10, 'SCORE: 0', { fontFamily: 'Courier', fontSize: '24px', color: '#00ff00' });
-  nameText = scene.add.text(GAME_WIDTH/2, 40, "", { fontFamily: 'Courier', fontSize: '20px', color: '#00ff00' }).setOrigin(0.5);
+  // --- SCORE et meilleur score
+  scoreText = scene.add.text(10, 10, 'Score: 0', { fontFamily: 'Arial', fontSize: '28px', fontStyle: 'bold', fill: '#000' });
+  bestText = scene.add.text(GAME_WIDTH - 10, 10, 'Best: ' + bestScore, { fontFamily: 'Arial', fontSize: '28px', fontStyle: 'bold', fill: '#000' }).setOrigin(1, 0);
 
-  showInput(scene);
+  // --- TEXTE PSEUDO avec cadre plus joli et animation
+  const rect = scene.add.rectangle(GAME_WIDTH / 2, 60, 180, 30, 0xffffff, 0.8).setStrokeStyle(3, 0x000000, 1);
+  rect.setOrigin(0.5, 0.5);
+  nameText = scene.add.text(GAME_WIDTH / 2, 60, playerName, { 
+      fontFamily: "Arial", 
+      fontSize: "20px", 
+      fontStyle: "bold", 
+      fill: "#000" 
+  }).setOrigin(0.5, 0.5);
+
+  // --- Animation pulse du cadre du pseudo
+  scene.tweens.add({
+    targets: rect,
+    scaleX: 1.05,
+    scaleY: 1.05,
+    duration: 800,
+    yoyo: true,
+    repeat: -1
+  });
+
+  // --- BOUTON PAUSE
+  pauseBtnContainer = scene.add.circle(GAME_WIDTH / 2, 20, 18, 0xffffff); 
+  pauseBtnContainer.setStrokeStyle(3, 0x000000); 
+  pauseBtnContainer.setInteractive({ useHandCursor: true });
+  pauseBtn = scene.add.text(GAME_WIDTH / 2, 20, "⏸", { fontSize: "20px", fontFamily: "Arial", color: "#000000", fontStyle: "bold" }).setOrigin(0.5);
+
+  pauseBtnContainer.on("pointerdown", () => { if(!gameOver && gameStarted) togglePause(scene); });
+  pauseBtn.on("pointerdown", () => { if(!gameOver && gameStarted) togglePause(scene); });
+
+  // --- INPUT HTML pour pseudo
+  if (!playerName) showInput(scene);
+  else startGame(scene); 
 }
 
 // =========================
-// INPUT PSEUDO
+// SHOW INPUT
 // =========================
 function showInput(scene) {
-  const inputElement = document.createElement("input");
-  inputElement.type = "text";
-  inputElement.placeholder = "Pseudo (max 7 caractères)";
-  inputElement.maxLength = 7;
-  inputElement.style.position = "absolute";
-  inputElement.style.top = "50%";
-  inputElement.style.left = "50%";
-  inputElement.style.transform = "translate(-50%, -50%)";
-  inputElement.style.width = "220px";
-  inputElement.style.height = "40px";
-  inputElement.style.fontSize = "20px";
-  inputElement.style.textAlign = "center";
-  inputElement.style.border = "2px solid #000";
-  inputElement.style.borderRadius = "8px";
-  inputElement.style.outline = "none";
-  document.body.appendChild(inputElement);
+    inputElement = document.createElement("input");
+    inputElement.type = "text";
+    inputElement.placeholder = "Pseudo (max 7 caractères)";
+    inputElement.maxLength = 7;
+    inputElement.style.position = "absolute";
+    inputElement.style.top = "50%";
+    inputElement.style.left = "50%";
+    inputElement.style.transform = "translate(-50%, -50%)";
+    inputElement.style.width = "220px";
+    inputElement.style.height = "40px";
+    inputElement.style.fontSize = "20px";
+    inputElement.style.textAlign = "center";
+    inputElement.style.border = "2px solid #000";
+    inputElement.style.borderRadius = "8px";
+    inputElement.style.outline = "none";
+    document.body.appendChild(inputElement);
 
-  inputElement.addEventListener("input", () => {
-    inputElement.value = inputElement.value.replace(/\s/g, "");
-  });
+    inputElement.addEventListener("input", () => { inputElement.value = inputElement.value.replace(/\s/g, ""); });
 
-  inputElement.addEventListener("keydown", (e) => {
-    if(e.key === "Enter" && inputElement.value.length > 0){
-      playerName = inputElement.value.substring(0,7);
-      nameText.setText(playerName);
-      inputElement.style.display = "none";
-      startGame(scene);
-    }
-  });
+    inputElement.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && inputElement.value.length > 0) {
+        playerName = inputElement.value.substring(0,7);
+        nameText.setText(playerName);
+        inputElement.style.display = "none"; 
+        startGame(scene);
+      }
+    });
 }
 
 // =========================
 // START GAME
 // =========================
-function startGame(scene){
+function startGame(scene) {
   gameStarted = true;
   player.body.allowGravity = true;
   player.setVelocityY(300);
 
-  spawnTimer = scene.time.addEvent({ delay:1400, loop:true, callback:spawnObstacle, callbackScope:scene });
+  spawnTimer = scene.time.addEvent({ delay: 1400, loop: true, callback: spawnObstacle, callbackScope: scene });
 
   scene.input.on('pointerdown', jump);
   scene.input.keyboard.on('keydown-SPACE', jump);
 
-  function jump() {
-    if(gameOver) return;
-    if(player.body.blocked.down) player.setVelocityY(-520);
-  }
+  function jump() { if(gameOver) return; if(player.body.blocked.down) player.setVelocityY(-520); }
 }
 
 // =========================
-// OBSTACLES
+// SPAWN OBSTACLE
 // =========================
-function spawnObstacle(){
-  if(gameOver || !gameStarted) return;
-  const obs = obstacles.create(GAME_WIDTH+40, GROUND_Y, 'obstacle');
-  obs.setOrigin(0.5,1);
+function spawnObstacle() {
+  if (gameOver || !gameStarted) return;
+
+  const obs = obstacles.create(GAME_WIDTH + 40, GROUND_Y, 'obstacle');
+  obs.setOrigin(0.5, 1);
   obs.setScale(0.15);
   obs.body.setSize(obs.width, obs.height);
   obs.setVelocityX(-baseSpeed);
@@ -168,339 +206,114 @@ function spawnObstacle(){
 }
 
 // =========================
-// HIT / GAME OVER
+// HIT
 // =========================
-function hit(){
-  if(!gameStarted) return;
+function hit() {
+  if (!gameStarted) return;
   gameOver = true;
   player.setTint(0xff0000);
   spawnTimer.remove();
 
-  saveScoreOnline(playerName, score);
+  if (score > bestScore) bestScore = score;
+  bestText.setText('Best: ' + bestScore);
 
-  getTop10Leaderboard((scores) => {
-    showLeaderboard(this, scores);
+  // --- ENVOYER SCORE FIREBASE
+  saveScoreFirebase(playerName, bestScore);
+  showLeaderboardFirebase(this);
+
+  // --- GAME OVER UI
+  const overlay = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.5);
+  const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, 'GAME OVER', { font: '28px Arial', fill: '#fff', align: 'center' }).setOrigin(0.5);
+  const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20, 'REJOUER', { font: '28px Arial', fill: '#fff', align: 'center' }).setOrigin(0.5);
+  this.tweens.add({ targets: restartText, alpha:0.2, duration:500, yoyo:true, repeat:-1 });
+
+  restartText.setInteractive({ useHandCursor:true });
+  restartText.on('pointerdown', () => {
+    overlay.destroy();
+    gameOverText.destroy();
+    restartText.destroy();
+    this.input.removeAllListeners();
+    this.input.keyboard.removeAllListeners();
+    this.scene.restart();
+    score = 0;
+    gameOver = false;
+    baseSpeed = 220;
+    bgSpeed = 3;
+    scoreTimer = 0;
+    nameText.setText(playerName);
   });
 }
 
 // =========================
-// SCORE ONLINE
+// FIREBASE FUNCTIONS
 // =========================
-function saveScoreOnline(name, score){
+function saveScoreFirebase(name, score){
   if(!name || score<=0) return;
-  push(ref(database,'leaderboard'), { name:name, score:score });
+  db.ref('leaderboard').push({ name:name, score:score });
+}
+
+function showLeaderboardFirebase(scene){
+  db.ref('leaderboard').orderByChild('score').limitToLast(10).once('value', snapshot=>{
+    let scores=[];
+    snapshot.forEach(child=>scores.push(child.val()));
+    scores.sort((a,b)=>b.score-b.score);
+    const boardBg = scene.add.rectangle(GAME_WIDTH/2,GAME_HEIGHT/2,300,420,0x000000,0.8).setStrokeStyle(3,0xffd700);
+    const title = scene.add.text(GAME_WIDTH/2,GAME_HEIGHT/2-180,"🏆 TOP 10",{ fontFamily:"Courier", fontSize:"28px", color:"#FFD700", fontStyle:"bold"}).setOrigin(0.5);
+    let startY = GAME_HEIGHT/2-140;
+    scores.forEach((entry,i)=>{
+      let color="#FFFFFF";
+      if(i===0) color="#FFD700";
+      if(i===1) color="#C0C0C0";
+      if(i===2) color="#cd7f32";
+      scene.add.text(GAME_WIDTH/2,startY+i*28,`${i+1}. ${entry.name} - ${entry.score}`, { fontFamily:"Courier", fontSize:"20px", color:color }).setOrigin(0.5);
+    });
+    const closeBtn = scene.add.text(GAME_WIDTH/2,GAME_HEIGHT/2+170,"FERMER",{ fontFamily:"Courier", fontSize:"22px", color:"#FFD700", fontStyle:"bold"}).setOrigin(0.5).setInteractive({ useHandCursor:true });
+    closeBtn.on("pointerdown", ()=>{
+      boardBg.destroy();
+      title.destroy();
+      closeBtn.destroy();
+      scene.children.list.forEach(obj=>{ if(obj.text && obj.text.includes(". ")) obj.destroy(); });
+    });
+  });
 }
 
 // =========================
-// GET TOP 10
+// TOGGLE PAUSE
 // =========================
-function getTop10Leaderboard(callback){
-  const leaderboardRef = query(ref(database,'leaderboard'), orderByChild('score'), limitToLast(10));
-  onValue(leaderboardRef, snapshot => {
-    let scores = [];
-    snapshot.forEach(child => scores.push(child.val()));
-    scores.sort((a,b)=>b.score-a.score);
-    callback(scores);
-  });
-}
-
-// =========================
-// SHOW LEADERBOARD
-// =========================
-function showLeaderboard(scene, scores){
-  const boardBg = scene.add.rectangle(GAME_WIDTH/2, GAME_HEIGHT/2, 300, 420, 0x000000, 0.8).setStrokeStyle(3,0xffd700);
-  const title = scene.add.text(GAME_WIDTH/2, GAME_HEIGHT/2 -180, "🏆 TOP 10", { fontFamily:"Courier", fontSize:"28px", color:"#FFD700", fontStyle:"bold" }).setOrigin(0.5);
-  let startY = GAME_HEIGHT/2 - 140;
-
-  scores.forEach((entry,i)=>{
-    let color = "#FFFFFF";
-    if(i===0) color="#FFD700";
-    if(i===1) color="#C0C0C0";
-    if(i===2) color="#cd7f32";
-
-    scene.add.text(GAME_WIDTH/2, startY+i*28, `${i+1}. ${entry.name} - ${entry.score}`, { fontFamily:"Courier", fontSize:"20px", color:color }).setOrigin(0.5);
-  });
-
-  const closeBtn = scene.add.text(GAME_WIDTH/2, GAME_HEIGHT/2+170, "FERMER", { fontFamily:"Courier", fontSize:"22px", color:"#FFD700", fontStyle:"bold" }).setOrigin(0.5).setInteractive({ useHandCursor:true });
-  closeBtn.on("pointerdown",()=>{
-    boardBg.destroy();
-    title.destroy();
-    closeBtn.destroy();
-    scene.children.list.forEach(obj => { if(obj.text && obj.text.includes(". ")) obj.destroy(); });
-  });
+function togglePause(scene){
+  isPaused = !isPaused;
+  if(isPaused){
+    scene.physics.pause();
+    scene.time.paused = true;
+    pauseOverlay = scene.add.rectangle(GAME_WIDTH/2,GAME_HEIGHT/2,GAME_WIDTH,GAME_HEIGHT,0x000000,0.5);
+    pauseText = scene.add.text(GAME_WIDTH/2,GAME_HEIGHT/2,"PAUSE",{ fontSize:"42px", fontFamily:"Arial", fontStyle:"bold", color:"#fff" }).setOrigin(0.5);
+  } else {
+    scene.physics.resume();
+    scene.time.paused = false;
+    pauseOverlay.destroy();
+    pauseText.destroy();
+  }
 }
 
 // =========================
 // UPDATE
 // =========================
-function update(time,delta){
-  if(!gameStarted || gameOver) return;
-
-  scoreTimer += delta;
-  if(scoreTimer >= 2000){
-    score++;
-    scoreText.setText('SCORE: '+score);
-    scoreTimer = 0;
-    baseSpeed += 5;
-    bgSpeed += 0.05;
-  }
-  bg.tilePositionX += bgSpeed;
-
-  obstacles.getChildren().forEach(o=>{
-    o.setVelocityX(-baseSpeed);
-    if(o.x < -50) o.destroy();
-  });
-}
-// =========================
-// FIREBASE CONFIG
-// =========================
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, push, query, orderByChild, limitToLast, onValue } from "firebase/database";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyDnPIwUvzC5d_caDx2Jq9b5mVpsdX9rKNY",
-  authDomain: "runner-arcade-77ba6.firebaseapp.com",
-  databaseURL: "https://runner-arcade-77ba6-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "runner-arcade-77ba6",
-  storageBucket: "runner-arcade-77ba6.firebasestorage.app",
-  messagingSenderId: "569587415547",
-  appId: "1:569587415547:web:3099613cd76d5db42a335e"
-};
-
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
-
-// =========================
-// CONFIG JEU
-// =========================
-const GAME_WIDTH = 360;
-const GAME_HEIGHT = 640;
-const GROUND_Y = GAME_HEIGHT - 50;
-
-let player, obstacles;
-let score = 0;
-let scoreText;
-let nameText;
-let playerName = "";
-let gameOver = false;
-let spawnTimer;
-let bg;
-let gameStarted = false;
-
-let baseSpeed = 220;
-let bgSpeed = 3;
-let scoreTimer = 0;
-
-// --- Pause
-let isPaused = false;
-
-const config = {
-  type: Phaser.AUTO,
-  width: GAME_WIDTH,
-  height: GAME_HEIGHT,
-  parent: 'game',
-  backgroundColor: '#000000',
-  physics: {
-    default: 'arcade',
-    arcade: { gravity: { y: 1200 }, debug: false }
-  },
-  scene: { preload, create, update }
-};
-
-new Phaser.Game(config);
-
-// =========================
-// PRELOAD
-// =========================
-function preload() {
-  this.load.image('player', 'assets/player.png');
-  this.load.image('obstacle', 'assets/obstacle.png');
-  this.load.image('background', 'assets/background.png');
-}
-
-// =========================
-// CREATE
-// =========================
-function create() {
-  const scene = this;
-
-  // Background
-  bg = scene.add.tileSprite(GAME_WIDTH/2, GAME_HEIGHT/2, GAME_WIDTH, GAME_HEIGHT, 'background');
-
-  // Sol invisible
-  const ground = scene.add.rectangle(GAME_WIDTH/2, GROUND_Y, GAME_WIDTH, 10);
-  scene.physics.add.existing(ground, true);
-  ground.setVisible(false);
-
-  // Joueur
-  player = scene.physics.add.sprite(80, -200, 'player');
-  player.setOrigin(0.5, 1);
-  player.setScale(0.15);
-  player.setCollideWorldBounds(true);
-  player.setBounce(0.2);
-  scene.physics.add.collider(player, ground);
-
-  // Obstacles
-  obstacles = scene.physics.add.group();
-  scene.physics.add.collider(obstacles, ground);
-  scene.physics.add.overlap(player, obstacles, hit, null, scene);
-
-  // Score et pseudo
-  scoreText = scene.add.text(10, 10, 'SCORE: 0', { fontFamily: 'Courier', fontSize: '24px', color: '#00ff00' });
-  nameText = scene.add.text(GAME_WIDTH/2, 40, "", { fontFamily: 'Courier', fontSize: '20px', color: '#00ff00' }).setOrigin(0.5);
-
-  showInput(scene);
-}
-
-// =========================
-// INPUT PSEUDO
-// =========================
-function showInput(scene) {
-  const inputElement = document.createElement("input");
-  inputElement.type = "text";
-  inputElement.placeholder = "Pseudo (max 7 caractères)";
-  inputElement.maxLength = 7;
-  inputElement.style.position = "absolute";
-  inputElement.style.top = "50%";
-  inputElement.style.left = "50%";
-  inputElement.style.transform = "translate(-50%, -50%)";
-  inputElement.style.width = "220px";
-  inputElement.style.height = "40px";
-  inputElement.style.fontSize = "20px";
-  inputElement.style.textAlign = "center";
-  inputElement.style.border = "2px solid #000";
-  inputElement.style.borderRadius = "8px";
-  inputElement.style.outline = "none";
-  document.body.appendChild(inputElement);
-
-  inputElement.addEventListener("input", () => {
-    inputElement.value = inputElement.value.replace(/\s/g, "");
-  });
-
-  inputElement.addEventListener("keydown", (e) => {
-    if(e.key === "Enter" && inputElement.value.length > 0){
-      playerName = inputElement.value.substring(0,7);
-      nameText.setText(playerName);
-      inputElement.style.display = "none";
-      startGame(scene);
+function update(time, delta){
+  if(!gameStarted || isPaused) return;
+  if(!gameOver){
+    scoreTimer+=delta;
+    if(scoreTimer>=2000){
+      score++;
+      scoreText.setText('Score: '+score);
+      scoreTimer=0;
+      baseSpeed+=5;
+      bgSpeed+=0.05;
     }
-  });
-}
-
-// =========================
-// START GAME
-// =========================
-function startGame(scene){
-  gameStarted = true;
-  player.body.allowGravity = true;
-  player.setVelocityY(300);
-
-  spawnTimer = scene.time.addEvent({ delay:1400, loop:true, callback:spawnObstacle, callbackScope:scene });
-
-  scene.input.on('pointerdown', jump);
-  scene.input.keyboard.on('keydown-SPACE', jump);
-
-  function jump() {
-    if(gameOver) return;
-    if(player.body.blocked.down) player.setVelocityY(-520);
+    bg.tilePositionX+=bgSpeed;
   }
-}
-
-// =========================
-// OBSTACLES
-// =========================
-function spawnObstacle(){
-  if(gameOver || !gameStarted) return;
-  const obs = obstacles.create(GAME_WIDTH+40, GROUND_Y, 'obstacle');
-  obs.setOrigin(0.5,1);
-  obs.setScale(0.15);
-  obs.body.setSize(obs.width, obs.height);
-  obs.setVelocityX(-baseSpeed);
-  obs.body.allowGravity = false;
-  obs.setImmovable(true);
-}
-
-// =========================
-// HIT / GAME OVER
-// =========================
-function hit(){
-  if(!gameStarted) return;
-  gameOver = true;
-  player.setTint(0xff0000);
-  spawnTimer.remove();
-
-  saveScoreOnline(playerName, score);
-
-  getTop10Leaderboard((scores) => {
-    showLeaderboard(this, scores);
-  });
-}
-
-// =========================
-// SCORE ONLINE
-// =========================
-function saveScoreOnline(name, score){
-  if(!name || score<=0) return;
-  push(ref(database,'leaderboard'), { name:name, score:score });
-}
-
-// =========================
-// GET TOP 10
-// =========================
-function getTop10Leaderboard(callback){
-  const leaderboardRef = query(ref(database,'leaderboard'), orderByChild('score'), limitToLast(10));
-  onValue(leaderboardRef, snapshot => {
-    let scores = [];
-    snapshot.forEach(child => scores.push(child.val()));
-    scores.sort((a,b)=>b.score-a.score);
-    callback(scores);
-  });
-}
-
-// =========================
-// SHOW LEADERBOARD
-// =========================
-function showLeaderboard(scene, scores){
-  const boardBg = scene.add.rectangle(GAME_WIDTH/2, GAME_HEIGHT/2, 300, 420, 0x000000, 0.8).setStrokeStyle(3,0xffd700);
-  const title = scene.add.text(GAME_WIDTH/2, GAME_HEIGHT/2 -180, "🏆 TOP 10", { fontFamily:"Courier", fontSize:"28px", color:"#FFD700", fontStyle:"bold" }).setOrigin(0.5);
-  let startY = GAME_HEIGHT/2 - 140;
-
-  scores.forEach((entry,i)=>{
-    let color = "#FFFFFF";
-    if(i===0) color="#FFD700";
-    if(i===1) color="#C0C0C0";
-    if(i===2) color="#cd7f32";
-
-    scene.add.text(GAME_WIDTH/2, startY+i*28, `${i+1}. ${entry.name} - ${entry.score}`, { fontFamily:"Courier", fontSize:"20px", color:color }).setOrigin(0.5);
-  });
-
-  const closeBtn = scene.add.text(GAME_WIDTH/2, GAME_HEIGHT/2+170, "FERMER", { fontFamily:"Courier", fontSize:"22px", color:"#FFD700", fontStyle:"bold" }).setOrigin(0.5).setInteractive({ useHandCursor:true });
-  closeBtn.on("pointerdown",()=>{
-    boardBg.destroy();
-    title.destroy();
-    closeBtn.destroy();
-    scene.children.list.forEach(obj => { if(obj.text && obj.text.includes(". ")) obj.destroy(); });
-  });
-}
-
-// =========================
-// UPDATE
-// =========================
-function update(time,delta){
-  if(!gameStarted || gameOver) return;
-
-  scoreTimer += delta;
-  if(scoreTimer >= 2000){
-    score++;
-    scoreText.setText('SCORE: '+score);
-    scoreTimer = 0;
-    baseSpeed += 5;
-    bgSpeed += 0.05;
-  }
-  bg.tilePositionX += bgSpeed;
-
   obstacles.getChildren().forEach(o=>{
+    if(!gameStarted) return;
     o.setVelocityX(-baseSpeed);
-    if(o.x < -50) o.destroy();
+    if(o.x<-50) o.destroy();
   });
 }
