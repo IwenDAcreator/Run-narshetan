@@ -333,7 +333,7 @@ function update(time, delta){
   if(!gameStarted || isPaused) return;
   if(!gameOver){
     scoreTimer+=delta;
-    if(scoreTimer>=500){
+    if(scoreTimer>=2000){
       score++;
       scoreText.setText('Score: '+score);
       scoreTimer=0;
